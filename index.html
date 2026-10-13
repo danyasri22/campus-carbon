@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Campus Carbon Dashboard | SDG 13</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root { --ink:#060a11; --panel:#0c1522; --line:#1b2b40; --text:#e6eef9; --mute:#8197b3;
+          --s1:#ff7a59; --s2:#38bdf8; --s3:#a3e635; --off:#34d399; }
+  html, body { background: var(--ink); color: var(--text); font-family: 'Space Grotesk', system-ui, sans-serif; }
+  body { background-image: radial-gradient(900px 400px at 85% -10%, rgba(56,189,248,.10), transparent 60%),
+                           radial-gradient(700px 380px at 0% 0%, rgba(52,211,153,.08), transparent 60%); }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
+  .num { font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .mute { color: var(--mute); }
+  .field { width:100%; background:#08101b; border:1px solid var(--line); border-radius:10px; padding:.55rem .75rem; color:var(--text); }
+  .field:focus-visible, .btn:focus-visible { outline:2px solid var(--s2); outline-offset:2px; }
+  .btn { border-radius:10px; padding:.6rem 1rem; font-weight:600; transition: filter .15s, transform .15s; }
+  .btn:hover { filter:brightness(1.1); } .btn:active { transform: translateY(1px); }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+  .flash { animation: flash .9s ease-out; }
+  @keyframes flash { from { color: var(--s2); } to { color: inherit; } }
+  @media (prefers-reduced-motion: reduce) { .pulse, .flash { animation: none; } }
+  table { width:100%; border-collapse: collapse; }
+  th { text-align:left; font-weight:500; color:var(--mute); font-size:.78rem; padding:.4rem .5rem; }
+  td { padding:.5rem; border-top:1px solid var(--line); font-size:.85rem; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+
+  <header class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">Campus carbon ledger</h1>
+      <p class="mute text-sm">Scope 1, 2 and 3 emissions against solar and tree offsets. Supports SDG 13, Climate Action.</p>
+    </div>
+    <div class="panel px-3 py-2 flex items-center gap-2 text-sm" aria-live="polite">
+      <span id="dot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 pulse"></span>
+      <span id="status" class="mute">Connecting...</span>
+    </div>
+  </header>
+
+  <!-- KPI cards -->
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-5" aria-label="Key figures">
+    <article class="panel p-5">
+      <h2 class="mute text-sm">Total emissions, last 7 days</h2>
+      <p class="mt-2 text-5xl font-bold num"><span id="kTotal">0.00</span> <span class="text-lg mute font-medium">tCO2e</span></p>
+      <p class="mute text-sm mt-3">Today so far: <span id="kToday" class="num text-white">0.00</span> tCO2e</p>
+    </article>
+
+    <article class="panel p-5">
+      <h2 class="mute text-sm">Net carbon balance</h2>
+      <p id="kNetWrap" class="mt-2 text-5xl font-bold num"><span id="kNet">0.00</span> <span class="text-lg mute font-medium">tCO2e</span></p>
+      <p id="kNetNote" class="text-sm mt-3 mute"></p>
+      <p class="mute text-sm mt-1">Solar <span id="kSolar" class="num text-white">0.00</span> t, trees <span id="kTrees" class="num text-white">0.00</span> t</p>
+    </article>
+
+    <article class="panel p-5">
+      <h2 class="mute text-sm">Active scope breakdown</h2>
+      <ul id="scopeList" class="mt-3 space-y-3"></ul>
+    </article>
+  </section>
+
+  <!-- Charts -->
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <article class="panel p-5">
+      <h2 class="font-semibold">Where the carbon comes from</h2>
+      <p class="mute text-sm mb-3">Share of emissions by scope</p>
+      <div class="relative h-72"><canvas id="donut" role="img" aria-label="Donut chart of emissions by scope"></canvas></div>
+    </article>
+    <article class="panel p-5 lg:col-span-2">
+      <h2 class="font-semibold">Emissions against offsets</h2>
+      <p class="mute text-sm mb-3">Daily tCO2e for the last 7 days</p>
+      <div class="relative h-72"><canvas id="trend" role="img" aria-label="Bar and line chart of daily emissions and offsets"></canvas></div>
+    </article>
+  </section>
+
+  <!-- Inputs + live feed -->
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+    <article class="panel p-5">
+      <h2 class="font-semibold">Add an operational reading</h2>
+      <p class="mute text-sm mb-4">The dashboard recalculates as soon as you save.</p>
+      <form id="entryForm" class="space-y-3">
+        <label class="block text-sm">Building
+          <select id="fBuilding" class="field mt-1" required></select>
+        </label>
+        <label class="block text-sm">Activity
+          <select id="fMetric" class="field mt-1" required></select>
+        </label>
+        <label class="block text-sm">Amount (<span id="fUnit">kWh</span>)
+          <input id="fValue" type="number" step="any" min="0.01" class="field mt-1" placeholder="e.g. 250" required>
+        </label>
+        <p id="fHint" class="mute text-xs"></p>
+        <button class="btn w-full bg-sky-400 text-slate-900" type="submit">Add reading</button>
+      </form>
+
+      <hr class="my-5 border-slate-800">
+
+      <h2 class="font-semibold">Update offsets</h2>
+      <p class="mute text-sm mb-3">Solar adds today's generation. Tree count replaces the campus total.</p>
+      <form id="offsetForm" class="grid grid-cols-2 gap-3">
+        <label class="block text-sm">Solar (kWh)
+          <input id="oSolar" type="number" step="any" min="0.01" class="field mt-1" placeholder="e.g. 400">
+        </label>
+        <label class="block text-sm">Trees on campus
+          <input id="oTrees" type="number" step="1" min="0" class="field mt-1" placeholder="e.g. 1500">
+        </label>
+        <button class="btn col-span-2 bg-emerald-400 text-slate-900" type="submit">Update offsets</button>
+      </form>
+      <p id="msg" class="text-sm mt-4 min-h-[1.25rem]" role="status"></p>
+    </article>
+
+    <article class="panel p-5 lg:col-span-2">
+      <h2 class="font-semibold">Latest readings</h2>
+      <p class="mute text-sm mb-3">IoT telemetry and manual entries, newest first</p>
+      <div class="overflow-x-auto">
+        <table>
+          <thead><tr><th>Time</th><th>Building</th><th>Activity</th><th>Amount</th><th>kg CO2e</th><th>Source</th></tr></thead>
+          <tbody id="recent"><tr><td colspan="6" class="mute">Waiting for data. Start simulator.py or add a reading.</td></tr></tbody>
+        </table>
+      </div>
+    </article>
+  </section>
+
+  <footer class="mute text-xs pb-6">
+    Emission factors are indicative (grid 0.82 kg CO2e/kWh from CEA, diesel 2.68 kg/L, trees 21.77 kg CO2 per year). Confirm against current official sources before external reporting.
+  </footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const COLORS = { 1: '#ff7a59', 2: '#38bdf8', 3: '#a3e635', off: '#34d399' };
+const API_BASE = location.port === '5500' ? `${location.protocol}//${location.hostname}:8000` : '';
+const fmt = (n, d = 2) => Number(n).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let categories = [];
+
+async function api(path, opts) {
+  const r = await fetch(`${API_BASE}${path}`, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(typeof body.detail === 'string' ? body.detail
+    : Array.isArray(body.detail) ? body.detail.map(e => e.msg).join(', ') : 'Request failed');
+  return body;
+}
+const postJSON = (path, data) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+
+Chart.defaults.color = '#8197b3';
+Chart.defaults.font.family = "'Space Grotesk', system-ui, sans-serif";
+Chart.defaults.borderColor = '#16243a';
+
+const donut = new Chart($('donut'), {
+  type: 'doughnut',
+  data: { labels: ['Scope 1', 'Scope 2', 'Scope 3'],
+          datasets: [{ data: [0, 0, 0], backgroundColor: [COLORS[1], COLORS[2], COLORS[3]], borderColor: '#0c1522', borderWidth: 3 }] },
+  options: { responsive: true, maintainAspectRatio: false, cutout: '66%',
+    plugins: { legend: { position: 'bottom' },
+      tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.parsed, 3)} tCO2e` } } } }
+});
+
+const trend = new Chart($('trend'), {
+  type: 'bar',
+  data: { labels: [], datasets: [
+    { type: 'bar', label: 'Emissions (tCO2e)', data: [], backgroundColor: 'rgba(255,122,89,.8)', borderRadius: 5, order: 2 },
+    { type: 'line', label: 'Offsets (tCO2e)', data: [], borderColor: COLORS.off, backgroundColor: 'rgba(52,211,153,.15)',
+      fill: true, tension: .35, pointRadius: 4, pointBackgroundColor: COLORS.off, order: 1 } ] },
+  options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+    scales: { y: { beginAtZero: true, title: { display: true, text: 'tCO2e' } }, x: { grid: { display: false } } },
+    plugins: { legend: { position: 'bottom' } } }
+});
+
+function setText(id, value) {
+  const el = $(id);
+  if (el.textContent !== value) { el.textContent = value; el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+}
+
+function render(s) {
+  setText('kTotal', fmt(s.total_tco2e));
+  const todayIdx = s.trend.emissions.length - 1;
+  setText('kToday', fmt(s.trend.emissions[todayIdx]));
+
+  const net = s.net_tco2e;
+  setText('kNet', (net > 0 ? '+' : '') + fmt(net));
+  $('kNetWrap').style.color = net > 0 ? COLORS[1] : COLORS.off;
+  $('kNetNote').textContent = net > 0
+    ? `Net emitter. Offsets cover ${fmt(s.offset_coverage_pct, 1)}% of emissions.`
+    : 'Net negative. Offsets exceed emissions.';
+  setText('kSolar', fmt(s.solar_offset_tco2e));
+  setText('kTrees', fmt(s.tree_offset_tco2e));
+
+  $('scopeList').innerHTML = s.scopes.map(sc => `
+    <li>
+      <div class="flex justify-between text-sm"><span><span class="inline-block w-2.5 h-2.5 rounded-full mr-2" style="background:${COLORS[sc.scope]}"></span>${esc(sc.label)}</span>
+        <span class="num">${fmt(sc.tco2e)} t <span class="mute">(${fmt(sc.pct, 1)}%)</span></span></div>
+      <div class="h-1.5 rounded bg-slate-800 mt-1.5"><div class="h-1.5 rounded" style="width:${sc.pct}%;background:${COLORS[sc.scope]};transition:width .5s"></div></div>
+    </li>`).join('');
+
+  donut.data.datasets[0].data = s.scopes.map(x => x.tco2e);
+  donut.update();
+  trend.data.labels = s.trend.labels.map(l => new Date(l + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }));
+  trend.data.datasets[0].data = s.trend.emissions;
+  trend.data.datasets[1].data = s.trend.offsets;
+  trend.update();
+
+  $('recent').innerHTML = s.recent.length ? s.recent.map(r => `
+    <tr><td class="num mute">${esc(r.time.slice(11, 19))}</td><td>${esc(r.building)}</td><td>${esc(r.metric)}</td>
+    <td class="num">${fmt(r.value)} ${esc(r.unit)}</td><td class="num">${fmt(r.co2e_kg)}</td>
+    <td><span class="px-2 py-0.5 rounded-full text-xs ${r.source === 'iot' ? 'bg-sky-400/15 text-sky-300' : 'bg-lime-400/15 text-lime-300'}">${r.source === 'iot' ? 'IoT' : 'Manual'}</span></td></tr>`).join('')
+    : '<tr><td colspan="6" class="mute">No readings yet.</td></tr>';
+}
+
+let loading = false;
+async function load() {
+  if (loading) return;
+  loading = true;
+  try {
+    render(await api('/api/summary?days=7'));
+    $('status').textContent = 'Live, updated ' + new Date().toLocaleTimeString();
+    $('dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 pulse';
+  } catch (e) {
+    $('status').textContent = 'Offline. Check that the API is running.';
+    $('dot').className = 'w-2.5 h-2.5 rounded-full bg-red-400';
+  } finally { loading = false; }
+}
+
+function say(text, ok = true) {
+  const m = $('msg');
+  m.textContent = text;
+  m.style.color = ok ? COLORS.off : COLORS[1];
+}
+
+function syncUnit() {
+  const c = categories.find(x => x.key === $('fMetric').value);
+  if (!c) return;
+  $('fUnit').textContent = c.unit;
+  $('fHint').textContent = `Scope ${c.scope}. Factor: ${c.emission_factor} kg CO2e per ${c.unit}. ${c.description}.`;
+}
+
+async function init() {
+  try {
+    const [buildings, cats] = await Promise.all([api('/api/buildings'), api('/api/categories')]);
+    categories = cats;
+    $('fBuilding').innerHTML = buildings.map(b => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
+    const names = { 1: 'Scope 1 direct fuel', 2: 'Scope 2 electricity', 3: 'Scope 3 commute and waste' };
+    $('fMetric').innerHTML = [1, 2, 3].map(sc =>
+      `<optgroup label="${names[sc]}">${cats.filter(c => c.scope === sc).map(c => `<option value="${c.key}">${esc(c.name)}</option>`).join('')}</optgroup>`).join('');
+    $('fMetric').value = 'grid_electricity';
+    syncUnit();
+  } catch (e) { say('Could not load buildings and categories.', false); }
+  await load();
+  setInterval(load, 5000);
+}
+
+$('fMetric').addEventListener('change', syncUnit);
+
+$('entryForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  try {
+    const res = await postJSON('/api/entries', { building_id: +$('fBuilding').value, metric: $('fMetric').value, value: parseFloat($('fValue').value) });
+    say(`Added ${fmt(res.value)} ${res.unit} of ${res.name.toLowerCase()}: ${fmt(res.tco2e, 4)} tCO2e.`);
+    $('fValue').value = '';
+    await load();
+  } catch (e) { say(e.message, false); }
+});
+
+$('offsetForm').addEventListener('submit', async ev => {
+  ev.preventDefault();
+  const solar = parseFloat($('oSolar').value), trees = parseInt($('oTrees').value, 10);
+  const body = {};
+  if (!isNaN(solar)) body.solar_kwh = solar;
+  if (!isNaN(trees)) body.tree_count = trees;
+  if (!Object.keys(body).length) return say('Enter solar kWh, a tree count, or both.', false);
+  try {
+    const res = await postJSON('/api/offsets', body);
+    say(`Offsets updated. Campus trees: ${res.tree_count}. Solar added: ${fmt(res.solar_offset_kg_added / 1000, 4)} tCO2e.`);
+    $('oSolar').value = ''; $('oTrees').value = '';
+    await load();
+  } catch (e) { say(e.message, false); }
+});
+
+init();
+</script>
+</body>
+</html>
